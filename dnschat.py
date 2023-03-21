@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # DNSChat - Proof of Concept Implementation (DNSCHAT-2)
 #
@@ -80,8 +80,7 @@ class ChatListen (threading.Thread):
 				return
 
 			if debug:
-				print 'Received part ' + str(eles[2]) + '/' + str(eles[3]) + ' for msg sequence ' +seqid+ ' from user ' + str(eles[0])
-
+				print('Received part ' + str(eles[2]) + '/' + str(eles[3]) + ' for msg sequence ' +seqid+ ' from user ' + str(eles[0]))
 
 			# Create an entry in the dict if there isn't one already
 			if self.buffer.has_key('seq'+seqid) is False:
@@ -111,16 +110,16 @@ class ChatListen (threading.Thread):
 					obj = json.loads(clear)
 				except:
 					# If we couldn't decrypt it, the key being used is probably wrong
-					print '[Warning]: Received a message that could not be decrypted'
+					print('[Warning]: Received a message that could not be decrypted')
 					self.buffer['seq'+seqid]['output'] = True # Prevent repetition of the warning
 					return
 
 				ts = time.strftime('%H:%M:%S', time.localtime(obj['t']))
 
 				# Output the message (yes, this should be somewhere else really)
-				print ''
-				print ts +' [User ' + self.buffer['seq'+seqid]['user'] +']: ' +obj['m']
-				print 'Enter a Message:'
+				print('')
+				print(ts +' [User ' + self.buffer['seq'+seqid]['user'] +']: ' +obj['m'])
+				print('Enter a Message:')
 
 
 				# Prevent the message from being output again (which it might be if the query returned NXDOMAIN)
@@ -201,7 +200,7 @@ def main(argv):
 		resolve = dns.resolver.Resolver()
 
 	if not domain:
-		domain = raw_input('Enter the domain to query: ')
+		domain = input('Enter the domain to query: ')
 
 
 	# Get things rolling
@@ -213,13 +212,13 @@ def usage():
 	''' Output the usage information
 
 	'''
-	print ''
-	print '-h/--help		Print this text'
-	print '-r/--resolver=		DNS Resolver to use (e.g. --resolver=8.8.8.8)'
-	print '-c/--char-limit=		The maximum number of characters to use per query (default 63 - max is also 63)'
-	print '-i/--id=		Numeric ID to use'
-	print '-d/--domain=		The domain to query (e.g. --domain=example.com)'
-	print '-v/--debug		Use debug mode'
+	print('')
+	print('-h/--help		Print this text')
+	print('-r/--resolver=		DNS Resolver to use (e.g. --resolver=8.8.8.8)')
+	print('-c/--char-limit=		The maximum number of characters to use per query (default 63 - max is also 63)')
+	print('-i/--id=		Numeric ID to use')
+	print('-d/--domain=		The domain to query (e.g. --domain=example.com)')
+	print('-v/--debug		Use debug mode')
 	return
 
 
@@ -237,11 +236,11 @@ def launch(resolve,myid,domain,charlimit):
 
 
 	if debug:
-		print 'Running with the following values'
-		print '	Resolver:' +str(resolve.nameservers)
-		print '	My ID:' + str(myid)
-		print '	Domain:' + str(domain)
-		print ''
+		print('Running with the following values')
+		print('	Resolver:' +str(resolve.nameservers))
+		print('	My ID:' + str(myid))
+		print('	Domain:' + str(domain))
+		print('')
 
 
 	# Get the passphrase to use
@@ -260,7 +259,7 @@ def launch(resolve,myid,domain,charlimit):
 	try:
 		while True:
 			msgstring = {}
-			msg = raw_input('Enter a Message: ')
+			msg = input('Enter a Message: ')
 			epoch_time = int(time.time())		
 			msgstring['t'] = epoch_time
 			msgstring['m'] = msg
@@ -275,9 +274,9 @@ def launch(resolve,myid,domain,charlimit):
 				charlimit -= 5
 				testlen = len(str(myid)+'.'+str(seqid)+'.99.1000..'+domain) + charlimit
 				if debug:
-					print 'Charlimit lowered to ' +str(charlimit)
+					print('Charlimit lowered to ' +str(charlimit))
 				if charlimit < 15:
-					print '[System]: Available character length is getting low. Consider exiting and re-connecting'
+					print('[System]: Available character length is getting low. Consider exiting and re-connecting')
 
 
 
@@ -291,7 +290,7 @@ def launch(resolve,myid,domain,charlimit):
 			for seqno, msg in enumerate(chunks):
 				try:
 					if debug:
-						print 'Querying: ' + str(myid)+'.'+str(seqid)+'.'+str(seqno)+'.'+TN+'.'+str(msg)+'.'+domain
+						print('Querying: ') + str(myid)+'.'+str(seqid)+'.'+str(seqno)+'.'+TN+'.'+str(msg)+'.'+domain
 					# Send the query
 					resp = resolve.query(str(myid)+'.'+str(seqid)+'.'+str(seqno)+'.'+TN+'.'+str(msg)+'.'+domain,'A').response
 				except:
@@ -301,7 +300,7 @@ def launch(resolve,myid,domain,charlimit):
 
 			# Output a copy of the text
 			ts = time.strftime('%H:%M:%S', time.localtime(msgstring['t']))
-			print ts +' [You]: ' +msgstring['m']
+			print(ts +' [You]: ' +msgstring['m'])
 
 			# increment the sequence number
 			seqid += 1
@@ -311,8 +310,8 @@ def launch(resolve,myid,domain,charlimit):
 
 	except (KeyboardInterrupt, SystemExit):
 		listenerthread.running = False
-		print ''
-		print 'Exiting....'
+		print('')
+		print('Exiting....')
 		listenerthread.join() # Let the thread finish
 
 
@@ -321,6 +320,5 @@ if __name__ == '__main__':
 	try:
 		main(sys.argv[1:])
 	except (KeyboardInterrupt, SystemExit):
-		print 'Exiting'
+		print('Exiting')
 		sys.exit()
-
