@@ -25,7 +25,7 @@ import random
 import re
 import getpass
 import getopt
-
+import binascii
 
 # Scapy likes to complain if there isn't an IPv6 route, so lets shut it up
 import logging
@@ -59,75 +59,64 @@ class ChatListen (threading.Thread):
 	def listen(self):
 		sniff(filter="port 53",prn=self.process_pkt,timeout=10)
 
-	def process_pkt(self,pkt):
-		if DNSQR in pkt and pkt.dport == 53:
+def process_pkt(self,pkt):
+    if DNSQR in pkt and pkt.dport == 53:
+        # Break the query down into its constituent parts
+        eles = pkt[DNSQR].qname.decode().split('.')
+        seqid = eles[1]
+        seqno = eles[2]
 
-			# Break the query down into it's constituent parts
-			eles = pkt[DNSQR].qname.split('.')
+        # This is a somewhat restrictive requirement and could easily be improved, but it works well enough for a PoC
+        match = re.search("^\d+$", eles[1])
+        try: 
+            x = match.group(0)
+        except AttributeError: 
+            return
 
-			seqid = eles[1]
-			seqno = eles[2]
+        # Ignore messages that we've sent
+        if int(eles[0]) == self.myid:
+            return
 
-			# This is a somewhat restrictive requirement and could easily be improved, but it works well enough for a PoC
-			match = re.search("^\d+$", eles[1])
-			try: 
-				x = match.group(0)
-			except AttributeError: 
-				return
+        if debug:
+            print('Received part ' + str(eles[2]) + '/' + str(eles[3]) + ' for msg sequence ' +seqid+ ' from user ' + str(eles[0]))
 
-			# Ignore messages that we've sent
-			if int(eles[0]) == self.myid:
-				return
+        # Create an entry in the dict if there isn't one already
+        if 'seq'+seqid not in self.buffer:
+            self.buffer['seq'+seqid] = {}
+            self.buffer['seq'+seqid]['user'] = eles[0]
+            self.buffer['seq'+seqid]['entries'] = {}
+            self.buffer['seq'+seqid]['seqlen'] = eles[3]
+            self.buffer['seq'+seqid]['output'] = False
 
-			if debug:
-				print('Received part ' + str(eles[2]) + '/' + str(eles[3]) + ' for msg sequence ' +seqid+ ' from user ' + str(eles[0]))
+        # Set the details for this entry
+        self.buffer['seq'+seqid]['entries'][seqno] = eles[4]
 
-			# Create an entry in the dict if there isn't one already
-			if self.buffer.has_key('seq'+seqid) is False:
-				self.buffer['seq'+seqid] = {}
-				self.buffer['seq'+seqid]['user'] = eles[0]
-				self.buffer['seq'+seqid]['entries'] = {}
-				self.buffer['seq'+seqid]['seqlen'] = eles[3]
-				self.buffer['seq'+seqid]['output'] = False
+        # Once the full dispatch has been received, re-assemble and output.
+        if len(self.buffer['seq'+seqid]['entries']) == int(self.buffer['seq'+seqid]['seqlen']) and not self.buffer['seq'+seqid]['output']:
+            compiled = ''
+            # Re-assemble the messages in order
+            for key,value in sorted(self.buffer['seq'+seqid]['entries'].items(), key=lambda key_value: int(key_value[0])):
+                compiled += value
 
+            clear = self.cryptobj.decrypt(binascii.unhexlify(compiled))
 
-			# Set the details for this entry
-			self.buffer['seq'+seqid]['entries'][seqno] = eles[4]
+            try:
+                obj = json.loads(clear)
+            except:
+                # If we couldn't decrypt it, the key being used is probably wrong
+                print('[Warning]: Received a message that could not be decrypted')
+                self.buffer['seq'+seqid]['output'] = True # Prevent repetition of the warning
+                return
 
+            ts = time.strftime('%H:%M:%S', time.localtime(obj['t']))
 
-			# Once the full despatch has been received, re-assemble and output.
-			if len(self.buffer['seq'+seqid]['entries']) == int(self.buffer['seq'+seqid]['seqlen']) and self.buffer['seq'+seqid]['output'] is False:
-				compiled = ''
-				# Re-assemble the messages in order
-				for key,value in sorted(self.buffer['seq'+seqid]['entries'].iteritems(), key=lambda key_value: int(key_value[0])):
-					compiled += value
+            # Output the message (yes, this should be somewhere else really)
+            print('')
+            print(ts + ' [User ' + self.buffer['seq'+seqid]['user'] + ']: ' + obj['m'])
+            print('Enter a Message:')
 
-
-				#print 'Attempting to decrypt ' +compiled.decode('hex')
-				clear =  self.cryptobj.decrypt(compiled)
-
-				try:
-					obj = json.loads(clear)
-				except:
-					# If we couldn't decrypt it, the key being used is probably wrong
-					print('[Warning]: Received a message that could not be decrypted')
-					self.buffer['seq'+seqid]['output'] = True # Prevent repetition of the warning
-					return
-
-				ts = time.strftime('%H:%M:%S', time.localtime(obj['t']))
-
-				# Output the message (yes, this should be somewhere else really)
-				print('')
-				print(ts +' [User ' + self.buffer['seq'+seqid]['user'] +']: ' +obj['m'])
-				print('Enter a Message:')
-
-
-				# Prevent the message from being output again (which it might be if the query returned NXDOMAIN)
-				self.buffer['seq'+seqid]['output'] = True
-
-
-
-
+            # Prevent the message from being output again (which it might be if the query returned NXDOMAIN)
+            self.buffer['seq'+seqid]['output'] = True
 
 class DNSChatCrypto():
 	''' Very basic crypto class - doesn't do anything more spectacular than hand off to GnuPG
