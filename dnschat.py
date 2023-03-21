@@ -147,7 +147,8 @@ class DNSChatCrypto():
 
 		'''
 		crypted= self.gpg.encrypt(msg,None,passphrase=self.keystring,symmetric='AES256',armor=False)
-		return crypted.data.encode('hex')
+		return binascii.hexlify(crypted.data).decode('ascii')
+
 	
 
 
