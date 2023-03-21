@@ -39,112 +39,107 @@ listenerthread = None
 cryptobj = None
 debug = False
 
+class ChatListen(threading.Thread):
+    def __init__(self):
+        threading.Thread.__init__(self)
+        global listenerthread
+        self.current_value = None
+        self.running = True
+        self.key = None
+        self.debug = False
+        self.buffer = {}
 
-class ChatListen (threading.Thread):
-	def __init__(self):
-		threading.Thread.__init__(self)
-		global listenerthread
-		self.current_value = None
-		self.running = True
-		self.key = None
-		self.debug = False
-		self.buffer = {}
+    def run(self):
+        global listener
+        while self.running:
+            self.listen()
 
+    def listen(self):
+        sniff(filter="port 53", prn=self.process_pkt, timeout=10)
 
-	def run(self):
-		global listener
-		while self.running:
-			self.listen()
+    def process_pkt(self,pkt):
+        if DNSQR in pkt and pkt.dport == 53:
+            # Break the query down into its constituent parts
+            eles = pkt[DNSQR].qname.decode().split('.')
+            seqid = eles[1]
+            seqno = eles[2]
 
-	def listen(self):
-		sniff(filter="port 53",prn=self.process_pkt,timeout=10)
-
-def process_pkt(self,pkt):
-    if DNSQR in pkt and pkt.dport == 53:
-        # Break the query down into its constituent parts
-        eles = pkt[DNSQR].qname.decode().split('.')
-        seqid = eles[1]
-        seqno = eles[2]
-
-        # This is a somewhat restrictive requirement and could easily be improved, but it works well enough for a PoC
-        match = re.search("^\d+$", eles[1])
-        try: 
-            x = match.group(0)
-        except AttributeError: 
-            return
-
-        # Ignore messages that we've sent
-        if int(eles[0]) == self.myid:
-            return
-
-        if debug:
-            print('Received part ' + str(eles[2]) + '/' + str(eles[3]) + ' for msg sequence ' +seqid+ ' from user ' + str(eles[0]))
-
-        # Create an entry in the dict if there isn't one already
-        if 'seq'+seqid not in self.buffer:
-            self.buffer['seq'+seqid] = {}
-            self.buffer['seq'+seqid]['user'] = eles[0]
-            self.buffer['seq'+seqid]['entries'] = {}
-            self.buffer['seq'+seqid]['seqlen'] = eles[3]
-            self.buffer['seq'+seqid]['output'] = False
-
-        # Set the details for this entry
-        self.buffer['seq'+seqid]['entries'][seqno] = eles[4]
-
-        # Once the full dispatch has been received, re-assemble and output.
-        if len(self.buffer['seq'+seqid]['entries']) == int(self.buffer['seq'+seqid]['seqlen']) and not self.buffer['seq'+seqid]['output']:
-            compiled = ''
-            # Re-assemble the messages in order
-            for key,value in sorted(self.buffer['seq'+seqid]['entries'].items(), key=lambda key_value: int(key_value[0])):
-                compiled += value
-
-            clear = self.cryptobj.decrypt(binascii.unhexlify(compiled))
-
-            try:
-                obj = json.loads(clear)
-            except:
-                # If we couldn't decrypt it, the key being used is probably wrong
-                print('[Warning]: Received a message that could not be decrypted')
-                self.buffer['seq'+seqid]['output'] = True # Prevent repetition of the warning
+            # This is a somewhat restrictive requirement and could easily be improved, but it works well enough for a PoC
+            match = re.search("^\d+$", eles[1])
+            try: 
+                x = match.group(0)
+            except AttributeError: 
                 return
 
-            ts = time.strftime('%H:%M:%S', time.localtime(obj['t']))
+            # Ignore messages that we've sent
+            if int(eles[0]) == self.myid:
+                return
 
-            # Output the message (yes, this should be somewhere else really)
-            print('')
-            print(ts + ' [User ' + self.buffer['seq'+seqid]['user'] + ']: ' + obj['m'])
-            print('Enter a Message:')
+            if debug:
+                print('Received part ' + str(eles[2]) + '/' + str(eles[3]) + ' for msg sequence ' +seqid+ ' from user ' + str(eles[0]))
 
-            # Prevent the message from being output again (which it might be if the query returned NXDOMAIN)
-            self.buffer['seq'+seqid]['output'] = True
+            # Create an entry in the dict if there isn't one already
+            if 'seq'+seqid not in self.buffer:
+                self.buffer['seq'+seqid] = {}
+                self.buffer['seq'+seqid]['user'] = eles[0]
+                self.buffer['seq'+seqid]['entries'] = {}
+                self.buffer['seq'+seqid]['seqlen'] = eles[3]
+                self.buffer['seq'+seqid]['output'] = False
+
+            # Set the details for this entry
+            self.buffer['seq'+seqid]['entries'][seqno] = eles[4]
+
+            # Once the full dispatch has been received, re-assemble and output.
+            if len(self.buffer['seq'+seqid]['entries']) == int(self.buffer['seq'+seqid]['seqlen']) and not self.buffer['seq'+seqid]['output']:
+                compiled = ''
+                # Re-assemble the messages in order
+                for key,value in sorted(self.buffer['seq'+seqid]['entries'].items(), key=lambda key_value: int(key_value[0])):
+                    compiled += value
+
+                clear = self.cryptobj.decrypt(binascii.unhexlify(compiled))
+
+                try:
+                    obj = json.loads(clear)
+                except:
+                    # If we couldn't decrypt it, the key being used is probably wrong
+                    print('[Warning]: Received a message that could not be decrypted')
+                    self.buffer['seq'+seqid]['output'] = True # Prevent repetition of the warning
+                    return
+
+                ts = time.strftime('%H:%M:%S', time.localtime(obj['t']))
+
+                # Output the message (yes, this should be somewhere else really)
+                ts = time.strftime('%H:%M:%S', time.localtime(obj['t']))
+
+                # Output the message (yes, this should be somewhere else really)
+                print(ts + ' [' + str(obj['f']) + '] ' + obj['m'])
+
+                # Mark the message as output
+                self.buffer['seq'+seqid]['output'] = True
+
 
 class DNSChatCrypto():
-	''' Very basic crypto class - doesn't do anything more spectacular than hand off to GnuPG
-	'''
+    '''A basic cryptography class that delegates encryption and decryption to GnuPG'''
 
-	def __init__(self,key):
-		self.keystring = key
-		self.gpg = gnupg.GPG()
+    def __init__(self, key):
+        self.keystring = key
+        self.gpg = gnupg.GPG()
 
-	def encrypt(self,msg):
-		''' Encrypt the message with a symmetric key (PKI would be trivial to implement here though
+    def encrypt(self, msg):
+        '''
+        Encrypt the message with a symmetric key using AES256 algorithm and
+        return the encrypted message in hex string format.
+        '''
+        encrypted = self.gpg.encrypt(msg, self.keystring, symmetric='AES256', passphrase=getpass.getpass())
+        return encrypted.data.hex()
 
-			We don't ascii armor as it has two major drawbacks
-
-				- It increases the message size
-				- The first characters of the hex encoded version are always the same (2d2d2d2d2d424547494e20504750204d45535341), makes it easy to identify
-
-		'''
-		crypted= self.gpg.encrypt(msg,None,passphrase=self.keystring,symmetric='AES256',armor=False)
-		return binascii.hexlify(crypted.data).decode('ascii')
-
-	
-
-
-	def decrypt(self,ciphertext):
-		return str(self.gpg.decrypt(ciphertext.decode("hex"),passphrase=self.keystring))
-
-
+    def decrypt(self, ciphertext):
+        '''
+        Decrypt the message with a symmetric key using AES256 algorithm and
+        return the decrypted message as a string.
+        '''
+        decrypted = self.gpg.decrypt(bytes.fromhex(ciphertext), passphrase=self.keystring)
+        return decrypted.data.decode()
 
 def main(argv):
 	''' Starting point.....
